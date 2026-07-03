@@ -1,4 +1,25 @@
+# Python
 __pycache__/
 mini_bdx_runtime.egg-info/
 build
 dist
+build/
+dist/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+env/
+
+# IDE / Editor specific
+.vscode/
+.idea/
+
+# Data & Model files (These are often large and should not be in git)
+*.pkl
+*.onnx
+*.jpg
+
+# Configuration files that might contain sensitive info or local paths

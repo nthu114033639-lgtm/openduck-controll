@@ -10,9 +10,7 @@ from mini_bdx_runtime.poly_reference_motion import PolyReferenceMotion
 from mini_bdx_runtime.xbox_controller import XBoxController
 from mini_bdx_runtime.feet_contacts import FeetContacts
 from mini_bdx_runtime.eyes import Eyes
-from mini_bdx_runtime.sounds import Sounds
 from mini_bdx_runtime.antennas import Antennas
-from mini_bdx_runtime.projector import Projector
 from mini_bdx_runtime.rl_utils import make_action_dict, LowPassActionFilter
 from mini_bdx_runtime.duck_config import DuckConfig
 
@@ -111,12 +109,6 @@ class RLWalk:
         # Optional expression features
         if self.duck_config.eyes:
             self.eyes = Eyes()
-        if self.duck_config.projector:
-            self.projector = Projector()
-        if self.duck_config.speaker:
-            self.sounds = Sounds(
-                volume=1.0, sound_directory="../mini_bdx_runtime/assets/"
-            )
         if self.duck_config.antennas:
             self.antennas = Antennas()
 
@@ -184,6 +176,42 @@ class RLWalk:
 
         time.sleep(2)
 
+    def reset_to_init_stance(self):
+        # 1. 暫停步態與清空歷史記憶
+        self.paused = True
+        self.phase_frequency_factor = 1.0
+        self.phase_frequency_factor_offset = self.duck_config.phase_frequency_factor_offset
+        self.imitation_i = 0
+        self.imitation_phase = np.array([0, 0])
+
+        self.last_action = np.zeros(self.num_dofs)
+        self.last_last_action = np.zeros(self.num_dofs)
+        self.last_last_last_action = np.zeros(self.num_dofs)
+
+        self.motor_targets = np.array(self.init_pos.copy())
+        self.prev_motor_targets = np.array(self.init_pos.copy())
+
+        # 安全重置遙控指令維度 (7維)
+        self.last_commands = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+        print("Resetting to init stance (Two-stage Kp)")
+
+        # 2. 真正的兩階段柔和復位流程
+        # 第一階段：強制切換到極低剛性 (Kp=2)
+        self.hwi.io.set_kps(list(self.hwi.joints.values()), self.hwi.low_torque_kps)
+        time.sleep(0.1)  # 給馬達一點時間反應指令
+
+        # 發送目標位置 (因為低剛性，馬達會軟綿綿地滑過去)
+        action_dict = make_action_dict(np.array(self.init_pos), list(self.hwi.joints.keys()))
+        self.hwi.set_position_all(action_dict)
+
+        # 等待機器人慢慢歸位
+        time.sleep(1.0)
+
+        # 第二階段：切回正常工作剛性 (Kp=28/32)
+        self.hwi.io.set_kps(list(self.hwi.joints.values()), self.hwi.kps)
+        print("Init stance ready. High Kps restored.")
+
     def get_phase_frequency_factor(self, x_velocity):
 
         max_phase_frequency = 1.2
@@ -210,14 +238,20 @@ class RLWalk:
                     self.last_commands, self.buttons, left_trigger, right_trigger = (
                         self.xbox_controller.get_last_command()
                     )
-                    if self.buttons.dpad_up.triggered:
+                    if self.buttons.B.triggered:
                         self.phase_frequency_factor_offset += 0.05
+                        self.phase_frequency_factor_offset = float(
+                            np.clip(self.phase_frequency_factor_offset, -0.5, 0.5)
+                        )
                         print(
                             f"Phase frequency factor offset {round(self.phase_frequency_factor_offset, 3)}"
                         )
 
-                    if self.buttons.dpad_down.triggered:
+                    if self.buttons.X.triggered:
                         self.phase_frequency_factor_offset -= 0.05
+                        self.phase_frequency_factor_offset = float(
+                            np.clip(self.phase_frequency_factor_offset, -0.5, 0.5)
+                        )
                         print(
                             f"Phase frequency factor offset {round(self.phase_frequency_factor_offset, 3)}"
                         )
@@ -227,13 +261,9 @@ class RLWalk:
                     else:
                         self.phase_frequency_factor = 1.0
 
-                    if self.buttons.X.triggered:
-                        if self.duck_config.projector:
-                            self.projector.switch()
-
-                    if self.buttons.B.triggered:
-                        if self.duck_config.speaker:
-                            self.sounds.play_random_sound()
+                    if self.buttons.Y.triggered:
+                        self.reset_to_init_stance()
+                        continue
 
                     if self.duck_config.antennas:
                         self.antennas.set_position_left(right_trigger)
@@ -332,8 +362,6 @@ class RLWalk:
                 self.antennas.stop()
             if self.duck_config.eyes:
                 self.eyes.stop()
-            if self.duck_config.projector:
-                self.projector.stop()
             self.feet_contacts.stop()
 
         if self.save_obs:

@@ -1,3 +1,4 @@
+#調整機器人初始位置 kp kd的程式碼
 import time
 
 import numpy as np
@@ -70,11 +71,11 @@ class HWI:
 
         self.joints_offsets = self.duck_config.joints_offset
 
-        self.kps = np.ones(len(self.joints)) * 32  # default kp
-        self.kds = np.ones(len(self.joints)) * 0  # default kd
-        self.low_torque_kps = np.ones(len(self.joints)) * 2
+        self.kps = np.ones(len(self.joints)) * 28  # default kp=32 彈簧
+        self.kds = np.ones(len(self.joints)) * 0  # default kd 阻尼 建議不要調 馬達有可能會過熱 
+        self.low_torque_kps = np.ones(len(self.joints)) * 2 #軟kp＝2
 
-        self.io = rustypot.feetech(usb_port, 1000000)
+        self.io = rustypot.feetech(usb_port, 1000000) #Baud rate＝1000000
 
     def set_kps(self, kps):
         self.kps = kps
